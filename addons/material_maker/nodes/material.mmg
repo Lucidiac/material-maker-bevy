@@ -3076,15 +3076,9 @@
 						"type": "texture"
 					},
 					{
-						"conditions": "$(connected:metallic_tex)",
-						"file_name": "$(path_prefix)_metallic.png",
-						"output": 12,
-						"type": "texture"
-					},
-					{
-						"conditions": "$(connected:roughness_tex)",
-						"file_name": "$(path_prefix)_roughness.png",
-						"output": 13,
+						"conditions": "$(connected:ao_tex) or $(connected:roughness_tex) or $(connected:metallic_tex)",
+						"file_name": "$(path_prefix)_orm.png",
+						"output": 1,
 						"type": "texture"
 					},
 					{
@@ -3097,12 +3091,6 @@
 						"conditions": "$(connected:emission_tex)",
 						"file_name": "$(path_prefix)_emission.png",
 						"output": 2,
-						"type": "texture"
-					},
-					{
-						"conditions": "$(connected:ao_tex)",
-						"file_name": "$(path_prefix)_occlusion.png",
-						"output": 9,
 						"type": "texture"
 					},
 					{
@@ -3132,24 +3120,27 @@
 							"        base_color_texture: Some(asset_server.load(\"textures/$(file_prefix)_albedo.png\")),",
 							"$fi",
 							"        metallic: $(param:metallic),",
-							"$if $(connected:metallic_tex)",
-							"        metallic_roughness_texture: Some(asset_server.load(\"textures/$(file_prefix)_metallic.png\")),",
-							"$fi",
 							"        perceptual_roughness: $(param:roughness),",
+							"$if $(connected:ao_tex) or $(connected:roughness_tex) or $(connected:metallic_tex)",
+							"        // orm.png: R=occlusion, G=roughness, B=metallic (glTF ORM format)",
+							"        metallic_roughness_texture: Some(asset_server.load(\"textures/$(file_prefix)_orm.png\")),",
+							"        occlusion_texture: Some(asset_server.load(\"textures/$(file_prefix)_orm.png\")),",
+							"$fi",
 							"$if $(connected:normal_tex)",
 							"        normal_map_texture: Some(asset_server.load(\"textures/$(file_prefix)_normal.png\")),",
+							"        flip_normal_map_y: true,",
 							"$fi",
 							"$if $(connected:emission_tex)",
-							"        emissive: Color::WHITE * $(param:emission_energy),",
+							"        emissive: LinearRgba::WHITE,",
 							"        emissive_texture: Some(asset_server.load(\"textures/$(file_prefix)_emission.png\")),",
-							"$fi",
-							"$if $(connected:ao_tex)",
-							"        occlusion_texture: Some(asset_server.load(\"textures/$(file_prefix)_occlusion.png\")),",
 							"$fi",
 							"$if $(connected:depth_tex)",
 							"        depth_map: Some(asset_server.load(\"textures/$(file_prefix)_depth.png\")),",
 							"        parallax_depth_scale: $(expr:0.2*$(param:depth_scale)),",
 							"        parallax_mapping_method: ParallaxMappingMethod::Relief { max_steps: 32 },",
+							"$fi",
+							"$if $(connected:opacity_tex) and $(param:flags_transparent)",
+							"        alpha_mode: AlphaMode::Blend,",
 							"$fi",
 							"        ..default()",
 							"    });",
