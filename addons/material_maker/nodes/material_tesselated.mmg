@@ -2998,6 +2998,12 @@
 						"type": "texture"
 					},
 					{
+						"conditions": "$(connected:sss_tex)",
+						"file_name": "$(path_prefix)_sss.png",
+						"output": 5,
+						"type": "texture"
+					},
+					{
 						"file_name": "$(path_prefix)_material.rs",
 						"prompt_overwrite": true,
 						"template": [
@@ -3041,7 +3047,11 @@
 							"        alpha_mode: AlphaMode::Blend,",
 							"$fi",
 							"        ..default()",
-							"        // Note: subsurface scattering (sss_tex) has no equivalent in StandardMaterial.",
+							"$if $(connected:sss_tex)",
+							"        // Bevy approximates SSS via diffuse light transmission",
+							"        diffuse_transmission: $(param:sss),",
+							"        diffuse_transmission_texture: Some(asset_server.load(\"textures/$(file_prefix)_sss.png\")),",
+							"$fi",
 							"    });",
 							"",
 							"    commands.spawn((",
