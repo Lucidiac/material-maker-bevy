@@ -445,6 +445,59 @@ func process_option_unreal5(s : String, is_declaration : bool = false, declarati
 	s = s.replace("sampler2D", "sampler")
 	return s
 
+# GLSL to WGSL conversion via the glsl2wgsl tool (uses naga)
+
+static func find_glsl2wgsl_tool() -> String:
+	var tool_name := "glsl2wgsl"
+	if OS.get_name() == "Windows":
+		tool_name += ".exe"
+	# Check next to the executable (release builds)
+	var exe_dir := OS.get_executable_path().get_base_dir()
+	var tool_path := exe_dir.path_join(tool_name)
+	if FileAccess.file_exists(tool_path):
+		return tool_path
+	# Check in tools/ subdirectory next to executable
+	tool_path = exe_dir.path_join("tools").path_join(tool_name)
+	if FileAccess.file_exists(tool_path):
+		return tool_path
+	# Check in the project's tools directory (editor mode)
+	if OS.has_feature("editor"):
+		tool_path = ProjectSettings.globalize_path("res://tools/glsl2wgsl/target/release/"+tool_name)
+		if FileAccess.file_exists(tool_path):
+			return tool_path
+	return ""
+
+func convert_glsl_to_wgsl(glsl_code : String, bevy_mode : bool = false) -> String:
+	var tool_path := find_glsl2wgsl_tool()
+	if tool_path == "":
+		push_warning("glsl2wgsl tool not found. WGSL conversion skipped — exporting raw GLSL instead.")
+		push_warning("Build the tool with: cd tools/glsl2wgsl && cargo build --release")
+		return glsl_code
+	var temp_dir := OS.get_temp_dir()
+	var temp_input := temp_dir.path_join("mm_shader_input.glsl")
+	var temp_output := temp_dir.path_join("mm_shader_output.wgsl")
+	var f := FileAccess.open(temp_input, FileAccess.WRITE)
+	if f == null:
+		push_warning("Cannot write temporary GLSL file for conversion")
+		return glsl_code
+	f.store_string(glsl_code)
+	f = null
+	var args : Array = [temp_input, "-o", temp_output]
+	if bevy_mode:
+		args.append("--bevy")
+	var output : Array = []
+	var exit_code := OS.execute(tool_path, args, output, true)
+	if exit_code != 0:
+		push_warning("glsl2wgsl conversion failed (exit code %d)" % exit_code)
+		if not output.is_empty():
+			push_warning(output[0])
+		return glsl_code
+	var out_file := FileAccess.open(temp_output, FileAccess.READ)
+	if out_file == null:
+		push_warning("Cannot read converted WGSL output")
+		return glsl_code
+	return out_file.get_as_text()
+
 # Export
 
 func get_export_profiles() -> Array:
@@ -455,6 +508,16 @@ func get_export_profiles() -> Array:
 		for k in mm_loader.get_external_export_targets(get_template_name()).keys():
 			if export_profiles.find(k) == -1:
 				export_profiles.append(k)
+		# Merge exports from the current predefined template so that new export
+		# profiles added to .mmg files appear even in projects saved before the
+		# profile existed.
+		var template_name = get_template_name()
+		if mm_loader.predefined_generators.has(template_name):
+			var tpl = mm_loader.predefined_generators[template_name]
+			if tpl.has("shader_model") and tpl.shader_model.has("exports"):
+				for k in tpl.shader_model.exports.keys():
+					if export_profiles.find(k) == -1:
+						export_profiles.append(k)
 	export_profiles.sort()
 	return export_profiles
 
@@ -465,6 +528,13 @@ func get_export(profile : String) -> Dictionary:
 			return external_export_targets[profile]
 	if shader_model.has("exports") and shader_model.exports.has(profile):
 		return shader_model.exports[profile]
+	# Fall back to the predefined template's exports (for profiles added after the project was saved)
+	var template_name = get_template_name()
+	if template_name != null and mm_loader.predefined_generators.has(template_name):
+		var tpl = mm_loader.predefined_generators[template_name]
+		if tpl.has("shader_model") and tpl.shader_model.has("exports"):
+			if tpl.shader_model.exports.has(profile):
+				return tpl.shader_model.exports[profile]
 	return {}
 
 func get_export_extension(profile : String) -> String:
@@ -608,13 +678,17 @@ func process_uids(template : String) -> String:
 		template = template.replace(result.strings[0], uid)
 	return template
 
-func create_file_from_template(template : String, file_name : String, export_context : Dictionary) -> Error:
+func create_file_from_template(template : String, file_name : String, export_context : Dictionary, postprocess : String = "") -> Error:
 	template = get_template_text(template)
 	var processed_template : String = process_uids(process_buffers(process_conditionals(process_template(template, export_context))))
 	var custom_script = ""
 	if export_context.has("@mm_custom_script"):
 		custom_script = export_context["@mm_custom_script"]
 	processed_template = process_shader(processed_template, custom_script, true).shader_code
+	if postprocess == "glsl2wgsl":
+		processed_template = convert_glsl_to_wgsl(processed_template, false)
+	elif postprocess == "glsl2wgsl_bevy":
+		processed_template = convert_glsl_to_wgsl(processed_template, true)
 	if file_name == "clipboard":
 		DisplayServer.clipboard_set("\n".join(processed_template.split("\n", false)))
 	else:
@@ -764,7 +838,8 @@ func export_material(prefix : String, profile : String, size : int = 0, command_
 					for p in f.file_params.keys():
 						file_export_context["$(file_param:"+p+")"] = f.file_params[p]
 				var file_name = subst_string(f.file_name, export_context)
-				e = create_file_from_template(f.template, file_name, file_export_context)
+				var postprocess = f.get("postprocess", "")
+				e = create_file_from_template(f.template, file_name, file_export_context, postprocess)
 				if e != OK:
 					error_files += 1
 				processed_files += 1

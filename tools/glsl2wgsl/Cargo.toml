@@ -1,0 +1,8 @@
+[package]
+name = "glsl2wgsl"
+version = "0.1.0"
+edition = "2021"
+description = "GLSL to WGSL converter for Material Maker Bevy export"
+
+[dependencies]
+naga = { version = "28", features = ["glsl-in", "wgsl-out"] }
